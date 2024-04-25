@@ -8,6 +8,18 @@
         
          Atharva AI
       </a>
+
+      <div class="dropdown d-flex flex-row">
+        <button class="bg-light" type="button" id="dropdownMenuButton" data-bs-toggle="dropdown" aria-expanded="false" style="outline: none; border: none;">
+            <img src="/static/image.png" alt="User Profile Picture" class="img-thumbnail rounded-circle" style="width: 35px; height: 35px;">
+            <span class="d-inline-flex">{{email}}</span>
+        </button>
+        <ul class="dropdown-menu" aria-labelledby="dropdownMenuButton">
+            <li><a class="dropdown-item" href="#">{{name}}</a></li>
+            <li><a class="dropdown-item" href="#">{{email}}</a></li>
+            <li><a class="dropdown-item" href="/login">logout</a></li>
+        </ul>
+    </div>
     </div>
 </nav>
 
