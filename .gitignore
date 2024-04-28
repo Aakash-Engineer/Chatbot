@@ -162,4 +162,7 @@ cython_debug/
 # .gitignore
 database.db
 
+# .gitignore
+chatbot.db
+
 
