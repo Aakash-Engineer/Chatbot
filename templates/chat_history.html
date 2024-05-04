@@ -7,6 +7,17 @@
         <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='chat.css') }}">
         <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
         <title>Document</title>
+        <style>
+            pre{
+                width: 100%;
+                background-color: #f4f4f4;
+                border: 1px solid #ccc;
+                padding: 10px;
+                border-radius: 5px;
+                overflow-x: auto;
+                position: relative;
+            }
+        </style>
     </head>
     <body>
         
@@ -65,7 +76,7 @@
                                     <div class="d-flex flex-row">
                                         <img src="/static/image.png" alt="User Profile Picture" class="img-thumbnail rounded-circle" style="width: 35px; height: 35px;">
                                         <div class="d-flex flex-column text-start ms-2">
-                                            <span class="">{{i['query']}}</span>
+                                            {{i['query']}}
                                         </div>
                                     </div>
                                 </div>
@@ -78,9 +89,12 @@
                                             </svg>
                                         </span>
                                         <div class="d-flex flex-column text-start ms-2">
-                                            <span class="">{{i['response']}}</span>
+                                            <!-- the bolow code contents in HTML format, but it is inclode in a string, so decode it -->
+
+                                            {{i['response']|safe}}
                                         </div>
                                     </div>
+                                    
 
                                 </div>
                             {% endfor %}

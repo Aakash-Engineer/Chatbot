@@ -58,15 +58,7 @@
     margin:0 auto;
 }
 
-/* textarea{
-    width: 60%;
-    height: 80%;
-    padding: 10px 30px;
-    outline: none;
-    resize: none;
-    border-radius: 30px;
-    bottom: 10px;
-} */
+
 
 table a{
     text-decoration: none !important;
@@ -76,6 +68,17 @@ table a{
 .realChat{
     width: 75%;
     /* min-width: 75%; */
+}
+
+/* Create a professional background for codes and add a copy option */
+pre{
+    width: 100%;
+    background-color: #f4f4f4;
+    border: 1px solid #ccc;
+    padding: 10px;
+    border-radius: 5px;
+    overflow-x: auto;
+    position: relative;
 }
 
 

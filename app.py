@@ -1,22 +1,39 @@
-from flask import Flask, request, jsonify, render_template, session, redirect, url_for
+import os
+from flask import Flask, request, jsonify, render_template, session, redirect, url_for, flash, get_flashed_messages
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 import bcrypt
-import os
+import google.generativeai as genai
+import mistune
+import re
+import json
 
 app=Flask(__name__)
 
-# Get the secret key from the environment variable
-app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')
-app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URI')
+# congigure the generative AI API
+genai.configure(api_key=os.environ.get('GENAI_API_KEY'))
+
+################################################### Configure envurionment variables #################################
+
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY')
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URI')
+app.config['SESSION_TYPE'] = 'filesystem'
+app.config['SESSION_FILE_DIR'] = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'session')
+app.config['SESSION_PERMANENT'] = True
+app.config['SESSION_USE_SIGNER'] = True
+app.config['CORS_HEADERS'] = 'Content-Type'
 
 
 CORS(app)
 db=SQLAlchemy(app)
-socketio = SocketIO(app, cors_allowed_origins=os.getenv('CORS_ALLOWED_ORIGINS'))
+socketio = SocketIO(app, cors_allowed_origins='*')
 
-# Database classes
+#  Render markdown
+renderer = mistune.HTMLRenderer()
+parser = mistune.create_markdown(renderer=renderer)
+
+#########################################################  Database classes ##########################################
 class User(db.Model):
     name=db.Column(db.String(80))
     email=db.Column(db.String(80), primary_key=True)
@@ -43,8 +60,8 @@ class Session(db.Model):
 
 class Message(db.Model):
     message_id=db.Column(db.String(80),primary_key=True)
-    query=db.Column(db.String(500))
-    response=db.Column(db.String(500))
+    query=db.Column(db.String(5000))
+    response=db.Column(db.String(5000))
     session_id=db.Column(db.String(80), db.ForeignKey('session.session_id', ondelete='CASCADE'))
 
     def __init__(self, message_id, query,response,session_id):
@@ -66,7 +83,8 @@ with app.app_context():
 
 
 
-# Routes configuration
+# ####################################################### Routes configuration ##########################################
+
 @app.route('/')
 def index():
     if 'email' in session:
@@ -79,13 +97,27 @@ def index():
             return redirect(url_for('login'))
     return redirect(url_for('login'))
 
-@app.route('/register', methods=['GET', 'POST']) # Register route
-def register():
-    if request.method=='POST':
-        name=request.form['name']
-        email=request.form['email']
-        password=request.form['password']
 
+@app.errorhandler(404)
+def page_not_found(e):
+    return render_template('404.html'), 404
+
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        name = request.form['name']
+        email = request.form['email']
+        password = request.form['password']
+
+        if not is_valid_email(email):
+            flash('Invalid email')
+            return redirect(url_for('register'))
+
+        if not is_valid_password(password):
+            flash('Password must be at least 8 characters long')
+            return redirect(url_for('register'))
+        
         new_user=User(email, name, password)
         db.session.add(new_user)
         db.session.commit()
@@ -106,60 +138,102 @@ def login():
         if user and user.check_password(password):
             session['email']=email
             session['name']=user.name
-            session_name=user.name
-            session_email=user.email
+            # set session time limit to 60 minutes
+            session.permanent = True
+            app.permanent_session_lifetime = 60*60
+
             return redirect(url_for('index'))
         else:
-            return render_template('login.html', error='Invalid email or password')
+            flash('Invalid email or password')
+            return render_template('login.html')
     else:
         return render_template('login.html')
 
 # Chat route
 @app.route('/chat')
 def chat():
-    # fetch all messages of a user from the message table using the email set in the session variable
-    # A user can have multiple sessions, so fetch all the sessions of the user from the session table 
-    # and also for each session fetch the first message from the message table
+    try:
+        email = session.get('email')
+        if not email:
+            flash("Please log in to access the chat.")
+            return redirect(url_for('login'))
 
-    sessions = db.session.query(Session).filter_by(email=session['email']).all()
-    session_ids = [session.session_id for session in sessions]
-    messages = []
-    for session_id in session_ids:
-        message = db.session.query(Message).filter_by(session_id=session_id).first()
-        messages.append(message)
-    message_dicts = [message.to_dict() for message in messages]
-    # reverse the list of messages
-    # message_dicts.reverse()
-    return render_template('chat.html',messages=message_dicts, name=session['name'], email=session['email'])
+        sessions = db.session.query(Session).filter_by(email=email).all()
+        session_ids = [session.session_id for session in sessions]
+
+        messages = []
+        for session_id in session_ids:
+            message = db.session.query(Message).filter_by(session_id=session_id).first()
+            if message:
+                messages.append(message)
+
+        messages.reverse()
+        message_dicts = [message.to_dict() for message in messages]
+
+        return render_template('chat.html', messages=message_dicts, name=session.get('name'), email=email)
+
+    except Exception as e:
+        # Log the error here
+        app.logger.error(f"Error in chat route: {e}")
+
+        # Display a user-friendly error message and redirect to an error page
+        flash("An error occurred while loading the chat. Please try again later.")
+        return redirect(url_for('error'))
     
 
 @app.route('/chat/<id>')
 def chat_history(id):
-    messages = db.session.query(Message).filter_by(session_id=id).all()
-    message_dicts = [message.to_dict() for message in messages]
-    return render_template('chat_history.html',messages=message_dicts, name=session['name'], email=session['email'])
+    try:
+        messages = db.session.query(Message).filter_by(session_id=id).all()
+        if not messages:
+            # If no messages are found for the given ID, it's likely that the ID doesn't exist
+            flash("The requested chat history does not exist.")
+            return render_template('404.html'), 404
+
+        message_dicts = [message.to_dict() for message in messages]
+        return render_template('chat_history.html', messages=message_dicts, name=session['name'], email=session['email'])
+    except Exception as e:
+        # Log the error here
+        app.logger.error(f"Error in chat history route: {e}")
+
+        # Display a user-friendly error message and redirect to an error page
+        flash("An error occurred while loading the chat history. Please try again later.")
+        return redirect(url_for('error'))
+
    
 @app.route('/clear_chats')
 def clear_chats():
-    # Delete all sessions of a user from session table
-    
-    if 'email' in session:
-        # delete all sessions of the user
+    try:
+        if 'email' not in session:
+            flash("Please log in to clear your chats.")
+            return redirect(url_for('login'))
+
+        # Delete all sessions of a user from session table
+        email = session['email']
+
         # check if user exist in the database
-        user = User.query.filter_by(email=session['email']).first()
-        if user:
-            db.session.query(Session).filter_by(email=session['email']).delete()
-            db.session.commit()
-            return redirect(url_for('chat'))
+        user = User.query.filter_by(email=email).first()
+        if not user:
+            flash("User not found. Please log in again.")
+            return redirect(url_for('login'))
+
+        # delete all sessions of the user
+        db.session.query(Session).filter_by(email=email).delete()
+        db.session.commit()
+
         return redirect(url_for('chat'))
-    
-    return redirect(url_for('login'))
+
+    except Exception as e:
+        # Log the error here
+        app.logger.error(f"Error in clear chats route: {e}")
+
+        # Display a user-friendly error message and redirect to an error page
+        flash("An error occurred while clearing your chats. Please try again later.")
+        return redirect(url_for('error'))
 
 
 
-
-
-# Websocket configuration
+################################################### Websocket configuration ###########################################
 
 @socketio.on('connection_id', namespace='/chat')
 def handle_connection_id(connection_id):
@@ -170,32 +244,65 @@ def handle_connection_id(connection_id):
 
 @socketio.on('message', namespace='/chat')
 def handle_message(data):
-    # connection_id = data['connection_id']  # Get the connection_id from the data dictionary
     socket_id = data['socket_id']
     message_id = data['message_id']
     message_text = data['message_text']
-    email=data['email']
+    email = data['email']
+
+    try:
+        model = genai.GenerativeModel('gemini-pro')
+        response = model.generate_content(message_text)
+        html = parser(response.text)
+    except Exception as e:
+        # Log the error here
+        app.logger.error(f"Error generating response: {e}")
+
+        # Send an error message back to the client in HTML format with red text
+        error_message = f"<p style='color: red;'>{e}</p>"
+        emit('error', {'message': error_message}, room=socket_id)
+        return
 
     # Check if the socket_id exists in the session table
     existing_sessions = Session.query.filter_by(session_id=socket_id).first()
     if existing_sessions:
         # Store the message in the message table
-        message = Message(message_id=message_id, query=message_text, response='hello dear', session_id=socket_id)
+        message = Message(message_id=message_id, query=message_text, response=html, session_id=socket_id)
         db.session.add(message)
         db.session.commit()
     else:
+        try:
+            # Create a new session in the session table
+            existing_sessions = Session(session_id=socket_id, email=email)
+            db.session.add(existing_sessions)
+            db.session.commit()
 
-        existing_sessions = Session(session_id=socket_id, email=email)
-        db.session.add(existing_sessions)
-        db.session.commit()
-        message = Message(message_id=message_id, query=message_text, response='hello dear', session_id=socket_id)
-        db.session.add(message)
-        db.session.commit()
+            # Store the message in the message table
+            message = Message(message_id=message_id, query=message_text, response=html, session_id=socket_id)
+            db.session.add(message)
+            db.session.commit()
+        except Exception as e:
+            # Log the error here
+            app.logger.error(f"Error storing message in database: {e}")
 
-    # send hllo back to the client
-    emit('message', {'message_text': 'hello from server'}, room=socket_id)
+            # Send an error message back to the client in HTML format with red text
+            error_message = f"<p style='color: red;'>{e}</p>"
+            emit('error', {'message': error_message}, room=socket_id)
+            return
+
+    # Send the response back to the client
+    emit('message', {'message_text': html}, room=socket_id)
 
 
+##################################################### Utility functions ##############################################
+# Validate email
+def is_valid_email(email):
+    regex = r'^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$'
+    return re.search(regex, email) is not None
+
+# Validate password
+def is_valid_password(password):
+    # Add your password validation rules here
+    return len(password) >= 8
     
 
 if __name__ == '__main__':
