@@ -5,6 +5,7 @@ from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 import bcrypt
 import google.generativeai as genai
+import assemblyai as aai
 import mistune
 import re
 import json
@@ -13,6 +14,7 @@ app=Flask(__name__)
 
 # congigure the generative AI API
 genai.configure(api_key=os.environ.get('GENAI_API_KEY'))
+aai.settings.api_key = os.environ.get('ASSEMBLY_AI_API')
 
 ################################################### Configure envurionment variables #################################
 
@@ -27,7 +29,7 @@ app.config['CORS_HEADERS'] = 'Content-Type'
 
 CORS(app)
 db=SQLAlchemy(app)
-socketio = SocketIO(app, cors_allowed_origins='*')
+socketio = SocketIO(app, cors_allowed_origins='http://127.0.0.1:5000')
 
 #  Render markdown
 renderer = mistune.HTMLRenderer()
@@ -84,6 +86,10 @@ with app.app_context():
 
 
 # ####################################################### Routes configuration ##########################################
+
+# @app.route('/temp_voice')
+# def temp_voice():
+#     return render_template('temp_voice.html')
 
 @app.route('/')
 def index():
@@ -232,15 +238,15 @@ def clear_chats():
         return redirect(url_for('error'))
 
 
+@app.route('/voice')
+def voice():
+    return render_template('voice.html', name=session['name'], email=session['email'])
 
 ################################################### Websocket configuration ###########################################
 
 @socketio.on('connection_id', namespace='/chat')
 def handle_connection_id(connection_id):
     print(f"Received connection ID: {connection_id}")
-
-
-
 
 @socketio.on('message', namespace='/chat')
 def handle_message(data):
@@ -292,6 +298,27 @@ def handle_message(data):
     # Send the response back to the client
     emit('message', {'message_text': html}, room=socket_id)
 
+
+@socketio.on('connection_voice', namespace='/voice')
+def handle_voice_connect(data):
+    print('Connected to voice namespace')
+    
+transcriber = aai.Transcriber()
+
+@socketio.on('audioData', namespace='/voice')
+def handle_audio_data(json):
+    # Assuming the audio data is in json['data']
+    audio_data = json['data']
+    # Save the audio file to /static/audio.mp3  
+    with open('static/audio.mp3', 'wb') as f:
+        f.write(audio_data)
+    # Transcribe the audio file
+    transcript = transcriber.transcribe('static/audio.mp3')
+    if transcript.status == aai.TranscriptStatus.error:
+        print(transcript.error)
+    else:
+        # Emit the transcript text back to the client
+        emit('text_data', {'text': transcript.text})
 
 ##################################################### Utility functions ##############################################
 # Validate email

@@ -1,0 +1,97 @@
+<!-- This is a page that let user upload audio , the server respond with text data-->
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Voice</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"
+        integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <script src="//cdnjs.cloudflare.com/ajax/libs/socket.io/4.1.3/socket.io.min.js"></script>
+    <script src="//code.jquery.com/jquery-3.6.0.min.js"></script>
+    <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='voice.css') }}">
+    <style>
+        .container_box {
+            /* margin-top: 50px; */
+            height: 460px;
+            overflow-y: auto;
+        }
+
+        #audioPlayer {
+            display: none;
+        }
+    </style>
+</head>
+
+<body class="text-white bg-dark">
+
+    {% include 'navbar.html' %}
+    <div style="height:57px"></div>
+    <div class="main_container container">
+
+        <div id="text_container">
+            <div id="textData" class="border form-control bg-dark text-white shadow"></div>
+        </div>
+
+        <div id="audio_container">
+            <audio controls id="audioPlayer"></audio>
+        </div>
+        <div id="input_container">
+            <input type="file" id="audioFile" class="form-control shadow" accept="audio/*" id="audioPlayer">
+        </div>
+    </div>
+
+    <!-- <div class="container border container_box">
+        <div class="row">
+            <div class="col">
+                <h1>Text Data</h1>
+                <div id="textData"></div>
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-md-6">
+                <h1>Upload Audio</h1>
+                <input type="file" id="audioFile" accept="audio/*" id="audioPlayer">
+                <audio controls id="audioPlayer"></audio>
+            </div>
+        </div>
+    </div> -->
+
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        $(document).ready(function () {
+            var socket = io.connect('http://localhost:5000/voice');
+            socket.on('connect', function () {
+                var connection_id = socket.id;
+                console.log(connection_id);
+                socket.emit('connection_voice', connection_id);
+            });
+
+            $('#audioFile').on('change', function (e) {
+                var file = e.target.files[0];
+                var reader = new FileReader();
+                reader.onload = function (evt) {
+                    socket.emit('audioData', { data: evt.target.result });
+
+                    // Add the functionality to play the uploaded audio
+                    var audioURL = URL.createObjectURL(file);
+                    $('#audioPlayer').show();
+                    $('#audioPlayer').attr('src', audioURL);
+                    $('#audioPlayer')[0].load();
+                    $('#textData').text(' ');
+
+                };
+                reader.readAsArrayBuffer(file);
+            });
+
+            socket.on('text_data', function (data) {
+                console.log('text_data', data)
+                $('#textData').text(data.text);
+            });
+        });
+    </script>
+</body>
+
+</html>
