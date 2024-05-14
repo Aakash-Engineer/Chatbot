@@ -19,7 +19,7 @@ Here's a list of Python packages that need to be installed:
 - mysqlclient
 - bcrypt
 
-You can install them using pip:
+You can install them using pip
 
 ```sh
 pip install -r requirements.txt
